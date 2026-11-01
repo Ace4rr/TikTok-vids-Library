@@ -80,7 +80,7 @@ export function VideoModal({
               </a>
             )}
             <select
-              value={video.folders[0]?.id ?? ""}
+              value={video.folders?.[0]?.id ?? ""}
               onChange={async (e) => {
                 const folderId = e.target.value ? Number(e.target.value) : null;
                 await patch({ folder_ids: folderId ? [folderId] : [] });
@@ -110,10 +110,10 @@ export function VideoModal({
           )}
 
           <div className="tag-row">
-            {video.tags.map((tag) => (
+            {(video.tags ?? []).map((tag) => (
               <span key={tag.id} className={`chip ${tag.kind === "ai" ? "ai" : ""}`}>{tag.name}</span>
             ))}
-            {video.hashtags.map((h) => (
+            {(video.hashtags ?? []).map((h) => (
               <span key={`h-${h}`} className="chip muted">#{h}</span>
             ))}
           </div>
@@ -125,7 +125,7 @@ export function VideoModal({
               </button>
               {showTranscript && (
                 <div className="transcript-segments">
-                  {video.transcript.segments.map((seg, i) => (
+                  {(video.transcript.segments ?? []).map((seg, i) => (
                     <p key={i}>
                       <span className="muted">[{formatTs(seg.start)}]</span> {seg.text}
                     </p>
@@ -137,7 +137,7 @@ export function VideoModal({
 
           <h4>Заметки</h4>
           <ul className="notes">
-            {video.notes.map((note) => (
+            {(video.notes ?? []).map((note) => (
               <li key={note.id} className={note.kind !== "user" ? "ai-note" : ""}>{note.text}</li>
             ))}
           </ul>

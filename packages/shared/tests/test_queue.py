@@ -92,6 +92,20 @@ def test_reap_expired_leases(session):
     assert job.locked_by is None
 
 
+def test_backlog_blocked_during_day(session):
+    """lazy_backlog: backlog-задачи не берутся днём (allow_backlog=False), normal — берутся."""
+    job_queue.enqueue(session, JobType.RESOLVE, video_id=1, priority=int(JobPriority.BACKLOG))
+    job_queue.enqueue(session, JobType.RESOLVE, video_id=2, priority=int(JobPriority.NORMAL))
+
+    claim = job_queue.claim_next(session, "w1", [JobType.RESOLVE], allow_backlog=False)
+    assert claim is not None
+    assert claim.payload["video_id"] == 2  # normal приоритет прошёл, backlog подождёт ночи
+
+    claim2 = job_queue.claim_next(session, "w1", [JobType.RESOLVE], allow_backlog=True)
+    assert claim2 is not None
+    assert claim2.payload["video_id"] == 1  # ночью backlog берётся
+
+
 def test_queue_depths_and_download_ratio(session):
     job_queue.enqueue(session, JobType.RESOLVE, video_id=1)
     job_queue.enqueue(session, JobType.DOWNLOAD, video_id=2)

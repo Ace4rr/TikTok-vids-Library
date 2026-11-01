@@ -9,6 +9,8 @@ dependencies = [
     "toklib-ai",
     "fastapi>=0.115",
     "uvicorn>=0.32",
+    "alembic>=1.14",
+    "python-multipart>=0.0.18",
 ]
 
 [project.optional-dependencies]

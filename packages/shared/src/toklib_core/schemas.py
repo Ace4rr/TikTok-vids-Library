@@ -185,6 +185,7 @@ class SearchHit(BaseModel):
 
 class SearchResponse(BaseModel):
     total: int
+    mode: str = "fts"  # fts | hybrid | filters (честный статус ветки поиска)
     items: list[SearchHit]
 
 

@@ -23,7 +23,7 @@ export function VideoCard({ video, onOpen }: { video: Video; onOpen: () => void 
         ) : (
           <div className="thumb-embed">▶ embed</div>
         )}
-        {video.duration_sec !== null && <span className="duration">{formatDuration(video.duration_sec)}</span>}
+        {video.duration_sec != null && <span className="duration">{formatDuration(video.duration_sec)}</span>}
         {video.favorite && <span className="fav-star">★</span>}
       </div>
       <div className="card-body">

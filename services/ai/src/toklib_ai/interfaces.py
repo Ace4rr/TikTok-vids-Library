@@ -105,3 +105,8 @@ class Embedder(ABC):
 
     @abstractmethod
     def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+    def embed_query(self, texts: list[str]) -> list[list[float]]:
+        """Вектор запроса поиска. По умолчанию — как документ; модели с
+        асимметричными префиксами (e5) переопределяют (docs/08 §8.4)."""
+        return self.embed(texts)

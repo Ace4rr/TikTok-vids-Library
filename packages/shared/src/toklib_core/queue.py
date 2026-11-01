@@ -28,7 +28,9 @@ _CLAIM_SQL = text(
         updated_at = :now
     WHERE id = (
         SELECT id FROM job
-        WHERE status = 'pending' AND run_after <= :now AND type IN :types
+        WHERE status = 'pending' AND run_after <= :now
+          AND (priority < :backlog_priority OR :allow_backlog)
+          AND type IN :types
         ORDER BY priority ASC, run_after ASC, id ASC
         LIMIT 1
     )
@@ -89,11 +91,26 @@ def enqueue(
     return job
 
 
-def claim_next(session: Session, worker: str, types: Sequence[JobType], lease_seconds: int = 600) -> JobClaim | None:
+def claim_next(
+    session: Session,
+    worker: str,
+    types: Sequence[JobType],
+    lease_seconds: int = 600,
+    allow_backlog: bool = True,
+) -> JobClaim | None:
+    """Захват задачи. allow_backlog=False (день при lazy_backlog) — backlog-задачи
+    (priority ≥ JobPriority.BACKLOG) не берутся до ночного окна (docs/07 §7.6)."""
     now = utcnow()
     row = session.execute(
         _CLAIM_SQL,
-        {"worker": worker, "now": now, "types": [t.value for t in types], "lease": lease_seconds},
+        {
+            "worker": worker,
+            "now": now,
+            "types": [t.value for t in types],
+            "lease": lease_seconds,
+            "backlog_priority": int(JobPriority.BACKLOG),
+            "allow_backlog": 1 if allow_backlog else 0,
+        },
     ).first()
     if row is None:
         session.rollback()

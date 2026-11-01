@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import datetime as dt
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from toklib_core import queue as job_queue
 from toklib_core import search as search_mod
 from toklib_core.db import Analysis, Job, Video, utcnow
 from toklib_core.enums import JobPriority, JobType, VideoStatus
 from toklib_core.schemas import AiStatusResponse, ExportResponse
+from toklib_ingest.importer import import_links, parse_data_export
 
 from ..deps import CtxDep, SessionDep, require_auth
+from ..jellyfin import export_jellyfin
 
 router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(require_auth)])
 
@@ -153,7 +154,28 @@ def export_all(session: SessionDep) -> ExportResponse:
     return ExportResponse(exported_at=utcnow(), videos=videos)
 
 
-# import — Фаза 3 (FR-1.5/9.3), docs/09 §9.12
 @router.post("/import/data-export")
-def import_data_export() -> JSONResponse:
-    return JSONResponse(status_code=501, content={"detail": "импорт data export появится в Фазе 3"})
+async def import_data_export(
+    session: SessionDep,
+    ctx: CtxDep,
+    file: UploadFile,
+) -> dict:
+    """Массовый импорт архива TikTok «Скачать мои данные» (FR-1.5/9.3).
+
+    Ленивая обработка (docs/07 №7): backlog-приоритет — Tier-0 после резолва,
+    полный AI ночью; прогресс виден в очереди (/api/system/ai) и SSE.
+    """
+    data = await file.read()
+    links = parse_data_export(data)
+    if not links:
+        raise HTTPException(422, "в файле не найдено ни одной ссылки TikTok")
+    summary = import_links(session, links)
+    ctx.publish({"kind": "import", **summary})
+    return summary
+
+
+@router.post("/export/jellyfin")
+def export_jellyfin_tree(session: SessionDep, ctx: CtxDep) -> dict:
+    """Пересобрать Jellyfin-дерево (FR-8.2): hardlink + movie.nfo + poster."""
+    summary = export_jellyfin(session, ctx.settings.server.data_dir)
+    return summary

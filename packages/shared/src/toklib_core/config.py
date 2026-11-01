@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .enums import AiMode, DownloadProviderKind
 
@@ -48,6 +48,8 @@ class IngestSettings(BaseModel):
 
 
 class SttSettings(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     provider: str = "faster_whisper"  # faster_whisper | whisper_cpp | openai_api | groq_api
     model: str = "small"
     compute: str = "int8"  # int8 (CPU) | float16 (GPU)
@@ -65,6 +67,8 @@ class CircuitBreakerSettings(BaseModel):
 
 
 class LlmSettings(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     provider: str = "ollama"  # ollama | llama_cpp | openai_compat
     base_url: str = "http://ollama:11434"
     model: str = "qwen3:4b-instruct-q4_K_M"
@@ -90,6 +94,8 @@ class LlmFallbackSettings(BaseModel):
 
 
 class EmbeddingsSettings(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     provider: str = "sentence_transformers"  # sentence_transformers | ollama | openai_compat
     model: str = "multilingual-e5-small"
     dim: int = 384
@@ -98,6 +104,8 @@ class EmbeddingsSettings(BaseModel):
 
 
 class BudgetsSettings(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     analysis_per_day: int = 0  # 0 = без лимита (self-hosted, docs/07 §7.6)
     nightly_backlog: int = 400
     lazy_backlog: bool = True
@@ -131,7 +139,13 @@ class NightWindow(BaseModel):
 
 
 class AiSettings(BaseModel):
+    """validate_assignment: пресеты присваивают строки (например, mode) —
+    pydantic приводит их к enum'ам на месте (docs/09 §9.15)."""
+
+    model_config = ConfigDict(validate_assignment=True)
+
     mode: AiMode = AiMode.LOCAL_ONLY  # FR-6.5: local_only по умолчанию
+    preset: str = "custom"  # custom | S | M | L | XL | cloud (docs/08 §8.6, docs/09 §9.15)
     night_window: NightWindow = NightWindow()
     budgets: BudgetsSettings = BudgetsSettings()
     stt: SttSettings = SttSettings()
@@ -174,6 +188,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             raw = loaded
 
     settings = Settings.model_validate(raw)
+    _apply_preset(settings, raw)
 
     settings.server.data_dir = data_dir
     if env.get("TOKLIB_TOKEN"):
@@ -183,6 +198,118 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
     if env.get("TOKLIB_WEB_DIST"):
         settings.server.web_dist = env["TOKLIB_WEB_DIST"]
     return settings
+
+
+# ---------------------------------------------------------------------------
+# Пресеты железа (docs/08 §8.6, docs/09 §9.15): один ключ ai.preset подставляет
+# значения ТОЛЬКО в те пути конфига, которые пользователь не задал явно.
+PRESETS: dict[str, dict[str, Any]] = {
+    # S «NAS/N100/RPi»: локальный STT, LLM — дешёвое облако (opt-in), e5-small
+    "S": {
+        "ai.mode": "local_first",
+        "ai.stt.provider": "faster_whisper",
+        "ai.stt.model": "small",
+        "ai.stt.compute": "int8",
+        "ai.llm.provider": "openai_compat",
+        "ai.llm.base_url": "https://openrouter.ai/api/v1",
+        "ai.llm.model": "deepseek/deepseek-chat",
+        "ai.llm.api_key_env": "TOKLIB_LLM_KEY",
+        "ai.embeddings.model": "multilingual-e5-small",
+        "ai.budgets.nightly_backlog": 100,
+    },
+    # M «старый десктопный CPU» (i7-4790 класс): всё локально, 4B Q4 через Ollama
+    "M": {
+        "ai.mode": "local_only",
+        "ai.stt.provider": "faster_whisper",
+        "ai.stt.model": "small",
+        "ai.stt.compute": "int8",
+        "ai.llm.provider": "ollama",
+        "ai.llm.base_url": "http://127.0.0.1:11434",
+        "ai.llm.model": "qwen3:4b-instruct-q4_K_M",
+        "ai.embeddings.model": "multilingual-e5-small",
+        "ai.budgets.nightly_backlog": 200,
+    },
+    # L «GPU 8–12 ГБ»: large-v3-turbo float16 (если VRAM < 8 ГБ — замените на medium)
+    "L": {
+        "ai.mode": "local_only",
+        "ai.stt.provider": "faster_whisper",
+        "ai.stt.model": "large-v3-turbo",
+        "ai.stt.compute": "float16",
+        "ai.llm.provider": "ollama",
+        "ai.llm.base_url": "http://127.0.0.1:11434",
+        "ai.llm.model": "qwen3:8b-instruct-q4_K_M",
+        "ai.embeddings.model": "multilingual-e5-small",
+        "ai.budgets.nightly_backlog": 400,
+    },
+    # XL «бокс в LAN»: TokLib на NAS, инференс на GPU-машине (путь 3, docs/08 §8.1)
+    "XL": {
+        "ai.mode": "local_only",
+        "ai.stt.provider": "faster_whisper",
+        "ai.stt.model": "small",
+        "ai.stt.compute": "int8",
+        "ai.llm.provider": "ollama",
+        "ai.llm.base_url": "http://gpu-box.lan:11434",
+        "ai.llm.model": "qwen3:8b-instruct-q4_K_M",
+        "ai.embeddings.model": "multilingual-e5-small",
+        "ai.budgets.nightly_backlog": 400,
+    },
+    # cloud «без локального инференса»: Groq STT + дешёвый LLM; ключи — env
+    "cloud": {
+        "ai.mode": "local_first",
+        "ai.stt.provider": "openai_compat",
+        "ai.stt.base_url": "https://api.groq.com/openai/v1",
+        "ai.stt.model_name": "whisper-large-v3-turbo",
+        "ai.stt.api_key_env": "TOKLIB_STT_KEY",
+        "ai.llm.provider": "openai_compat",
+        "ai.llm.base_url": "https://openrouter.ai/api/v1",
+        "ai.llm.model": "deepseek/deepseek-chat",
+        "ai.llm.api_key_env": "TOKLIB_LLM_KEY",
+        "ai.embeddings.model": "multilingual-e5-small",
+        "ai.budgets.nightly_backlog": 1000,
+    },
+}
+
+_PRESET_FIELDS = {
+    "S",
+    "M",
+    "L",
+    "XL",
+    "cloud",
+}
+
+
+def _raw_has_path(raw: dict[str, Any], dotted: str) -> bool:
+    node: Any = raw
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return False
+        node = node[part]
+    return True
+
+
+def _apply_preset(settings: Settings, raw: dict[str, Any]) -> None:
+    preset = settings.ai.preset
+    if preset == "custom":
+        return
+    if preset not in _PRESET_FIELDS:
+        raise ValueError(f"ai.preset: неизвестный пресет {preset!r} (доступны: custom, {', '.join(sorted(_PRESET_FIELDS))})")
+    overrides = PRESETS[preset]
+    applied: list[str] = []
+    for dotted, value in overrides.items():
+        if _raw_has_path(raw, dotted):
+            continue  # явное значение пользователя сильнее пресета
+        node: Any = settings
+        parts = dotted.split(".")
+        for part in parts[:-1]:
+            node = getattr(node, part)
+        setattr(node, parts[-1], value)
+        applied.append(dotted)
+    if applied:
+        import logging
+
+        logging.getLogger("toklib.config").info(
+            "пресет %s подставил: %s (явно заданные значения не тронуты)", preset, ", ".join(applied)
+        )
 
 
 def secret_from_env(name: str, env: dict[str, str] | None = None) -> str | None:

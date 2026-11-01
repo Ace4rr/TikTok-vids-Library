@@ -38,6 +38,13 @@ class SentenceTransformerEmbedder(Embedder):
         vectors = model.encode(prefixed, batch_size=16, show_progress_bar=False)
         return [v.tolist() for v in vectors]
 
+    def embed_query(self, texts: list[str]) -> list[list[float]]:
+        model = self._load()
+        # асимметричный e5: запросы — с префиксом "query: " (docs/08 §8.4)
+        prefixed = [t if t.lower().startswith(("query:", "passage:")) else f"query: {t}" for t in texts]
+        vectors = model.encode(prefixed, batch_size=16, show_progress_bar=False)
+        return [v.tolist() for v in vectors]
+
 
 class OpenAiCompatEmbedder(Embedder):
     """Ollama / vLLM / OpenAI / OpenRouter — /v1/embeddings."""

@@ -1,124 +1,30 @@
-// Зеркало pydantic-схем toklib_core.schemas (docs/09 §9.10: генерация из OpenAPI — позже).
+// Контракт API — генерируется из OpenAPI (src/lib/schema.d.ts ← openapi.json, docs/09 §9.10).
+// Регенерация: uv run --all-packages python -m toklib_api.openapi_dump apps/web/openapi.json
+//              затем npm run gen:api
+// AiStatus и Filters оставлены hand-written: schema даёт dict[str, unknown] для providers.
 
-export type VideoStatus =
-  | "inbox"
-  | "resolving"
-  | "downloading"
-  | "transcribing"
-  | "analyzing"
-  | "ready"
-  | "error";
+import type { components } from "./schema";
 
-export type MediaMode = "none" | "embed" | "audio" | "file";
-export type Health = "unknown" | "alive" | "dead";
-export type InboxStatus = "new" | "resolved" | "duplicate" | "error";
+type S = components["schemas"];
 
-export interface Tag {
-  id: number;
-  name: string;
-  kind: "ai" | "user" | "system";
-  source: "ai" | "user" | null;
-  video_count?: number | null;
-}
+export type VideoStatus = S["VideoOut"]["status"];
+export type MediaMode = S["VideoOut"]["media_mode"];
+export type Health = S["VideoOut"]["health"];
 
-export interface Folder {
-  id: number;
-  name: string;
-  parent_id: number | null;
-  slug: string;
-  icon: string | null;
-}
+export type Tag = S["TagOut"];
+export type Folder = S["FolderOut"];
+export type Note = S["NoteOut"];
+export type TranscriptSegment = S["TranscriptSegmentModel"];
+export type Transcript = S["TranscriptOut"];
+export type Analysis = S["AnalysisOut"];
+export type Video = S["VideoOut"];
+export type VideoDetail = S["VideoDetail"];
+export type VideoPage = S["VideoPage"];
+export type InboxItem = S["InboxItemOut"];
+export type SearchHit = S["SearchHit"];
+export type SearchResponse = S["SearchResponse"];
 
-export interface Note {
-  id: number;
-  video_id: number;
-  kind: "user" | "ai_summary" | "key_idea";
-  text: string;
-  timestamp_sec: number | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface TranscriptSegment {
-  start: number;
-  end: number;
-  text: string;
-}
-
-export interface Transcript {
-  video_id: number;
-  language: string | null;
-  model: string | null;
-  source: "ai" | "user_edit";
-  segments: TranscriptSegment[];
-}
-
-export interface Analysis {
-  id: number;
-  model: string;
-  prompt_version: string;
-  summary: string | null;
-  key_idea: string | null;
-  category: string | null;
-  content_language: string | null;
-  confidence: number | null;
-  created_at: string;
-}
-
-export interface Video {
-  id: number;
-  tiktok_id: string | null;
-  url: string;
-  save_count: number;
-  author_username: string | null;
-  author_display: string | null;
-  author_avatar_url: string | null;
-  caption: string | null;
-  hashtags: string[];
-  duration_sec: number | null;
-  cover_url: string | null;
-  published_at: string | null;
-  saved_at: string;
-  status: VideoStatus;
-  media_mode: MediaMode;
-  health: Health;
-  viewed: boolean;
-  favorite: boolean;
-  partial_ai: boolean;
-  file_size: number | null;
-  last_error: string | null;
-}
-
-export interface VideoDetail extends Video {
-  tags: Tag[];
-  folders: Folder[];
-  notes: Note[];
-  transcript: Transcript | null;
-  analysis: Analysis | null;
-}
-
-export interface VideoPage {
-  items: Video[];
-  total: number;
-}
-
-export interface InboxResolveResponse {
-  result: "created" | "exists" | "pending";
-  video: Video | null;
-  video_id: number | null;
-  inbox_item_id: number | null;
-}
-
-export interface InboxItem {
-  id: number;
-  raw_text: string;
-  url: string | null;
-  source: string;
-  status: InboxStatus;
-  error: string | null;
-  video_id: number | null;
-  created_at: string;
-}
+export type InboxStatus = S["InboxItemOut"]["status"];
 
 export interface AiStatus {
   mode: string;
@@ -135,15 +41,17 @@ export interface AiStatus {
   download_success_24h: number | null;
 }
 
-export interface SearchResponse {
-  total: number;
-  items: { video: Video; rank: number | null }[];
-}
-
 export interface Filters {
   folderId: number | null;
   tag: string | null;
   viewed: boolean | null;
   favorite: boolean | null;
   q: string;
+}
+
+export interface InboxResolveResponse {
+  result: "created" | "exists" | "pending";
+  video: Video | null;
+  video_id: number | null;
+  inbox_item_id: number | null;
 }

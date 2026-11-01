@@ -89,6 +89,65 @@ class OllamaAnalyzer(OpenAiCompatAnalyzer):
         )
 
 
+# Схема выхода анализа (docs/07 §7.5) для structured outputs Ollama — жёсткий JSON
+# ещё до валидатора: критично для 3–4B моделей, где свободная генерация ломается чаще.
+ANALYZE_JSON_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "summary": {"type": "string"},
+        "key_idea": {"type": "string"},
+        "category": {"type": "string"},
+        "content_language": {"type": "string"},
+    },
+    "required": ["tags", "summary", "key_idea"],
+}
+
+
+class OllamaNativeAnalyzer(TextAnalyzer):
+    """Нативный /api/chat Ollama с format=json_schema (structured outputs).
+
+    Стоит в цепочке перед OpenAI-совместимым клиентом: если нативный вызов
+    не поддержан старым Ollama, complete() сам повторяет без schema, а следующая
+    запись цепочки (openai-compat) остаётся запасным путём.
+    """
+
+    name = "ollama"
+
+    def __init__(self, settings: LlmSettings) -> None:
+        self.settings = settings
+        self.model_id = settings.model
+        self.base_url = settings.base_url.rstrip("/")
+        self.temperature = settings.temperature
+        self.max_tokens = settings.max_tokens
+        self.cloud = False
+
+    def complete(self, system: str, user: str) -> str:
+        payload: dict = {
+            "model": self.model_id,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "stream": False,
+            "keep_alive": self.settings.keep_alive,
+            "options": {"temperature": self.temperature, "num_predict": self.max_tokens},
+            "format": ANALYZE_JSON_SCHEMA,
+        }
+        with httpx.Client(timeout=120.0) as http:
+            resp = http.post(self.base_url + "/api/chat", json=payload)
+            if resp.status_code == 400:
+                # старый Ollama без structured outputs — повтор без format
+                payload.pop("format", None)
+                resp = http.post(self.base_url + "/api/chat", json=payload)
+            resp.raise_for_status()
+            body = resp.json()
+        content = (body.get("message") or {}).get("content")
+        if not content:
+            raise RuntimeError(f"ollama вернул пустой content: {str(body)[:200]}")
+        return str(content)
+
+
 def build_analyzer(
     settings: LlmSettings,
     fallback: LlmFallbackSettings | None = None,
@@ -102,7 +161,8 @@ def build_analyzer(
     api_key = secret_from_env(settings.api_key_env, env)
     is_cloud = not _is_local(base)
     if provider == "ollama":
-        chain.append((OllamaAnalyzer(settings), is_cloud))
+        chain.append((OllamaNativeAnalyzer(settings), is_cloud))
+        chain.append((OllamaAnalyzer(settings), is_cloud))  # запасной openai-compat путь
     elif provider in ("llama_cpp", "lm_studio", "vllm", "openai_compat"):
         chain.append(
             (
@@ -140,10 +200,18 @@ def build_analyzer(
 
 
 def _is_local(base_url: str) -> bool:
+    """Локальный ли endpoint: localhost/частные сети/docker-имена без точки (ollama, llama-server)."""
     if not base_url:
         return True
-    lowered = base_url.lower()
-    return any(
-        marker in lowered
-        for marker in ("127.0.0.1", "localhost", "0.0.0.0", "::1", ".local", "192.168.", "10.", "172.")
+    from urllib.parse import urlparse
+
+    host = (urlparse(base_url).hostname or "").lower()
+    if not host:
+        return True
+    if host in ("127.0.0.1", "localhost", "0.0.0.0", "::1", "ollama"):
+        return True
+    if "." not in host:  # docker-compose service names: ollama, llama-server, gpu-box
+        return True
+    return host.endswith((".local", ".lan", ".home", ".internal")) or host.startswith(
+        ("192.168.", "10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.30.", "172.31.")
     )

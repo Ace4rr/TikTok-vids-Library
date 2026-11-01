@@ -16,7 +16,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY pyproject.toml uv.lock* .python-version ./
+COPY pyproject.toml uv.lock* .python-version alembic.ini ./
+COPY migrations/ ./migrations/
 COPY packages/ ./packages/
 COPY services/ ./services/
 COPY apps/api/ ./apps/api/

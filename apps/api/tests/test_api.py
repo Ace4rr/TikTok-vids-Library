@@ -1,5 +1,7 @@
 """Интеграционные тесты MVP-критериев (docs/03 §7): инбокс → карточка → поиск."""
 
+import json
+
 from conftest import add_video, run_stage
 from toklib_core.enums import JobType
 
@@ -171,8 +173,35 @@ def test_export_json(client):
     assert all("tiktok_id" in v for v in body["videos"])
 
 
-def test_import_not_implemented_yet(client):
-    assert client.post("/api/system/import/data-export").status_code == 501
+def test_import_data_export(client):
+    """Массовый импорт архива TikTok: ссылки → ленивая очередь (FR-1.5/9.3)."""
+    archive = json.dumps(
+        {
+            "ActivityList": [
+                {"Link": "https://www.tiktok.com/@x/video/7301234567890123999", "Date": "2025-06-01 12:00:00"},
+                {"Link": "https://www.tiktok.com/@x/video/7301234567890123888", "Date": "2025-06-02 12:00:00"},
+            ]
+        }
+    ).encode("utf-8")
+    resp = client.post(
+        "/api/system/import/data-export",
+        files={"file": ("export.json", archive, "application/json")},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["added"] == 2
+    assert body["links_found"] == 2
+
+    # карточки появились в ленте (ещё в инбоксе — backlog-обработка ночью)
+    feed = client.get("/api/videos").json()
+    assert feed["total"] == 2
+
+    # повторный импорт — дубликаты
+    resp2 = client.post("/api/system/import/data-export", files={"file": ("export.json", archive, "application/json")})
+    assert resp2.json()["duplicates"] == 2
+
+    empty = client.post("/api/system/import/data-export", files={"file": ("e.json", b"{}", "application/json")})
+    assert empty.status_code == 422
 
 
 def test_system_ai_status(client):

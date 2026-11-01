@@ -113,6 +113,12 @@ class AiRouter:
             raise NoProviderError("провайдер эмбеддингов не сконфигурирован")
         return self.embedder.embed(texts), self.embedder.model_id
 
+    def embed_query(self, text: str) -> tuple[list[float], str]:
+        """Вектор поискового запроса (query-префикс для e5, docs/08 §8.4)."""
+        if self.embedder is None:
+            raise NoProviderError("провайдер эмбеддингов не сконфигурирован")
+        return self.embedder.embed_query([text])[0], self.embedder.model_id
+
     def analyze(self, inp: AnalyzeInput) -> AnalysisResult:
         if not self.entries:
             raise AnalysisFailed("LLM-провайдеры не сконфигурированы")

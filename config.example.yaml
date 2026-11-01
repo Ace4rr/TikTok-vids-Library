@@ -28,6 +28,13 @@ storage:
 
 ai:
   mode: local_only          # local_only | local_first | cloud_only (FR-6.5: local_only — default)
+  # Пресет железа (docs/08 §8.6, docs/09 §9.15): подставляет STT/LLM/эмбеддинги/бюджеты одним
+  # ключом, НЕ перетирая явно заданные значения. Раскомментируйте один:
+  # preset: M                # старый десктопный CPU (i7-4790 класс): whisper small int8 + Ollama 4B
+  # preset: S                # NAS/N100: локальный STT + дешёвое облако-LLM (opt-in, нужен TOKLIB_LLM_KEY)
+  # preset: L                # GPU 8–12 ГБ: large-v3-turbo float16 + 8B Q4 (VRAM < 8 ГБ → stt.model: medium)
+  # preset: XL               # TokLib на NAS + инференс на GPU-боксе (поправьте llm.base_url)
+  # preset: cloud            # без локального инференса: Groq STT + OpenRouter LLM (нужны ключи)
   night_window: { start: "01:00", end: "07:00" }   # окно ночного бэклога (docs/07 §7.6)
 
   stt:

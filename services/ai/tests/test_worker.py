@@ -137,6 +137,31 @@ def test_analyze_budget_defers_to_night(db, tmp_path):
     assert utcnow() < job.run_after <= utcnow() + dt.timedelta(hours=24)
 
 
+def test_nightly_backlog_cap_defers(db, tmp_path):
+    """nightly_backlog исчерпан → backlog-задача откладывается; high — идёт дальше."""
+    from toklib_core.db import utcnow
+    from toklib_core.enums import JobPriority
+
+    _engine, session = db
+    ctx, _router = make_ctx(tmp_path)
+    ctx.settings.ai.budgets.nightly_backlog = 1
+    ctx.settings.ai.budgets.analysis_per_day = 0
+
+    v1 = Video(url="u1", tiktok_id="7300000000000000021", status=VideoStatus.READY)
+    v2 = Video(url="u2", tiktok_id="7300000000000000022", status=VideoStatus.READY)
+    session.add_all([v1, v2])
+    session.commit()
+    # один анализ уже сделан в текущем ночном окне — лимит исчерпан
+    session.add(Analysis(video_id=v1.id, model="m", prompt_version="v1", input_hash="h", created_at=utcnow()))
+    session.commit()
+
+    backlog_job = make_job(v2.id, priority=int(JobPriority.BACKLOG))
+    assert ai_worker.run_analyze_job(ctx, session, backlog_job) == "rescheduled"
+
+    high_job = make_job(v2.id, priority=int(JobPriority.HIGH))
+    assert ai_worker.run_analyze_job(ctx, session, high_job) == "analyzed"  # интерактив не душится
+
+
 def test_analyze_degradation_on_failure(db, tmp_path):
     from toklib_ai.interfaces import AnalysisFailed
 

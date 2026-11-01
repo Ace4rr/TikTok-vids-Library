@@ -160,8 +160,82 @@ apps/api/                 # toklib_api   — FastAPI, SSE, запуск ворк
 
 ## 9.13. Срезы реализации (порядок работ)
 
-1. ✅ Ядро: конфиг, схемы, БД, очередь, нормализация, oEmbed — **этот коммит**
-2. ✅ Воркеры: resolve → download → Tier-0; AI-каркас с фейками — **этот коммит**
-3. ✅ API + SSE + web-каркас + compose — **этот коммит**
-4. След.: реальные STT/LLM/эмбеддинги (Фаза 2, спайк на 20 видео — 06.5), Alembic,
-   генерация TS-типов из OpenAPI, уведомления бота, data-export импорт, cobalt-тесты.
+1. ✅ Ядро: конфиг, схемы, БД, очередь, нормализация, oEmbed
+2. ✅ Воркеры: resolve → download → Tier-0; AI-каркас с фейками
+3. ✅ API + SSE + web-каркас + compose
+4. ✅ Фаза 2 (каркас, 2026-11-02): гибридный поиск (RRF + sqlite-vec + Python-fallback),
+   ночной бэклог (окно + nightly_backlog), уведомления бота (SSE), Alembic (0001 + stamp),
+   TS-типы из OpenAPI, CLI spike/benchmark — 99 тестов
+5. ✅ Фаза 3, часть 1 (2026-11-02): пресеты железа `ai.preset` (S/M/L/XL/cloud),
+   Ollama native structured outputs, импорт data export, Jellyfin NFO-экспорт —
+   115 тестов
+6. След.: спайк на реальном железе пользователя (i7-4790 → пресет M; GPU 4–6 ГБ → L со
+   `stt.model: medium`), cobalt-провайдер тесты, дедуп «похожих» (FR-6.7),
+   HA-интеграция (Фаза 3 часть 2), UI для импорта.
+
+## 9.15. Решения Фазы 3, часть 1 (уровень кода)
+
+- **Пресеты железа одним ключом:** `ai.preset: S | M | L | XL | cloud` — подставляет
+  значения в пути `ai.stt/llm/embeddings/budgets/mode`, НО только те, что не заданы
+  явно в yaml (проверка по сырому dict — `_raw_has_path`). Пресеты соответствуют
+  docs/08 §8.6, дополнены сценарием пользователя: **M = старый десктопный CPU**
+  (i7-4790: faster-whisper small int8 + Ollama `qwen3:4b-instruct-q4_K_M` — на DDR3
+  ~3–6 т/с, 20–40 с/видео анализа — норма для ночного бэклога); **cloud** = без
+  локального инференса: Groq Whisper API (`TOKLIB_STT_KEY`) + OpenRouter
+  `deepseek/deepseek-chat` (`TOKLIB_LLM_KEY`) — транскрипты короткие, вызов один,
+  центы на 1000 видео (docs/07 §7.7). Preset cloud ставит mode=local_first — это
+  осознанный opt-in пользователя (NFR-9 не нарушается: default остаётся local_only).
+- **Ollama native structured outputs:** `OllamaNativeAnalyzer` — `/api/chat` с
+  `format=<JSON-schema>` + `keep_alive` (модель резидентна — docs/07 №12); жёсткий
+  JSON до валидатора критичен для 3–4B моделей. 400 → повтор без format (старый
+  Ollama); в цепочке за ним остаётся openai-compat путь той же модели.
+  `_is_local` теперь распознаёт docker-имена без точки (`ollama`, `gpu-box`) и
+  `.lan/.home/.internal` — иначе режим local_only ошибочно считал бы их облаком.
+- **Импорт data export (FR-1.5/9.3):** формат архива волатилен → парсер
+  эвристический: рекурсивный сбор всех tiktok-URL из JSON (+ дата из соседнего
+  поля `Date`), дедуп с сохранением порядка; поддержан и плоский txt-список.
+  `import_links`: дедуп по `tiktok_id` (ставится при создании!) → url; нераспознанные
+  ссылки пропускаются со счётчиком `skipped`. Приоритет задач — backlog (ленивая
+  обработка docs/07 №7). Endpoint `POST /api/system/import/data-export` (multipart),
+  CLI `toklib import-data-export --file`.
+- **Jellyfin-экспорт (FR-8.2):** `apps/api/jellyfin.py` — генерируемое дерево
+  `export/jellyfin/<Папка>/<tiktok-id>/{video.<ext>, poster.jpg, movie.nfo}`;
+  hardlink с fallback на копию (разные ФС); NFO: title=caption, plot=саммари+идея,
+  director=@author, теги+категория, year/aired из published_at, uniqueid=tiktok_id;
+  видео в нескольких папках → ссылка в каждой (hardlink бесплатен). Идемпотентно.
+  Endpoint `POST /api/system/export/jellyfin`, CLI `toklib export-jellyfin`.
+
+## 9.14. Решения Фазы 2 (уровень кода)
+
+- **Гибридный поиск (FR-7.2):** две ветки — FTS (BM25 rank) и векторная; слияние
+  RRF (`score = Σ 1/(60+rank)`), векторная ветка — топ-50 ближайших по косинусу
+  среди эмбеддингов текущей `model_id`. Контракт `GET /api/search` расширен
+  полем `mode: fts | hybrid | filters` — честный статус в UI (docs/07 §7.8).
+- **sqlite-vec — ускоритель, не зависимость:** часть сборок CPython (в т.ч.
+  uv-managed) запрещает загрузку sqlite-расширений («not authorized»), поэтому
+  `_vector_branch` при недоступности `vec_distance_cosine` считает косинус в
+  Python по float32-BLOB (тысячи векторов — незаметно). Векторы чужой размерности
+  пропускаются (правило 8.4). e5-асимметрия: `passage:` для документов,
+  `query:` для поисковых запросов (`Embedder.embed_query`).
+- **Ночной бэклог (docs/07 §7.6):** `claim_next(..., allow_backlog)` — при
+  `lazy_backlog` backlog-задачи (priority ≥ 2) не берутся вне ночного окна;
+  `nightly_backlog` — счётчик анализов с начала текущего окна, исчерпание →
+  перенос на следующее окно. Интерактивные задачи (high) лимитом не душатся.
+- **Alembic:** `setup_database()` при старте: `upgrade head`; БД, созданные до
+  Alembic (create_all), детектируются (есть `video`, нет `alembic_version`) и
+  штампуются головой. `alembic.ini` не найден → fallback create_all (warning).
+  URL прокидывается явно (тесты), env.py уважает заданный. CI: отдельный шаг
+  «Migrations apply cleanly» на пустой БД.
+- **TS-типы из OpenAPI:** `python -m toklib_api.openapi_dump apps/web/openapi.json`
+  → `npm run gen:api` (openapi-typescript) → `src/lib/schema.d.ts`;
+  `types.ts` — алиасы над `components["schemas"]` (AiStatus и Filters остались
+  hand-written из-за `dict[str, Any]` в providers). Поля с pydantic-дефолтами
+  стали optional — компоненты web приведены (`?? []`, `!= null`).
+- **Уведомления бота:** подписка на SSE `/api/events`; переходы отслеживает сам
+  бот (events не несут прежнего статуса). Получатели: `TOKLIB_TG_ALLOWED`,
+  иначе — чаты, писавшие боту в этом запуске. Уведомляем только ready / error /
+  health=dead; текст — чистая функция `notification_text` (покрыта тестом).
+- **CLI:** `toklib spike --links f [--out r.json] [--limit N]` — сухой прогон
+  конвейера на реальных ссылках (без записи в библиотеку) с временами стадий и
+  вердиктом go/no-go (docs/04 Фаза 0); `toklib benchmark` — p50 стадий AI на
+  видео из библиотеки (перезаписывает анализ — кэш по input_hash защищает).

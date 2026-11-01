@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from toklib_core import queue as job_queue
 from toklib_core.config import Settings
 from toklib_core.db import Analysis, Embedding, Job, Tag, Transcript, Video, VideoTag, utcnow
-from toklib_core.enums import JobType, MediaMode, TranscriptSource, VideoStatus
+from toklib_core.enums import JobPriority, JobType, MediaMode, TranscriptSource, VideoStatus
 from toklib_core.state import transition
 
 from . import tier0
@@ -155,6 +155,18 @@ def _budget_used_today(session: Session) -> int:
     return int(session.query(Analysis).filter(Analysis.created_at >= day_start).count())
 
 
+def _nightly_backlog_used(session: Session, ctx: AiContext) -> int:
+    """Анализов, сделанных с начала текущего ночного окна (учёт nightly_backlog)."""
+    window = ctx.settings.ai.night_window
+    now_local = dt.datetime.now().astimezone()
+    start_h, start_m = (int(x) for x in window.start.split(":"))
+    start_local = now_local.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+    if start_local > now_local:
+        start_local -= dt.timedelta(days=1)  # окно через полночь: мы в его второй половине
+    start_utc = start_local.astimezone(dt.UTC).replace(tzinfo=None)
+    return int(session.query(Analysis).filter(Analysis.created_at >= start_utc).count())
+
+
 def enqueue_analyze(session: Session, video: Video, priority: int, *, force: bool = False) -> None:
     job_queue.enqueue(
         session,
@@ -241,6 +253,15 @@ def run_analyze_job(ctx: AiContext, session: Session, job: Job) -> str:
     limit = ctx.settings.ai.budgets.analysis_per_day
     if limit > 0 and _budget_used_today(session) >= limit:
         return _defer_to_night(session, job, ctx)  # деградация, не затык (docs/07 §7.6)
+
+    # ночной лимит бэклога: nightly_backlog видео за ночь (docs/07 §7.6)
+    nightly = ctx.settings.ai.budgets.nightly_backlog
+    if (
+        nightly > 0
+        and int(job.priority) >= int(JobPriority.BACKLOG)
+        and _nightly_backlog_used(session, ctx) >= nightly
+    ):
+        return _defer_to_night(session, job, ctx)
 
     inp = build_analyze_input(session, video, ctx)
     model_id = ctx.router.primary_analyzer.model_id if ctx.router.primary_analyzer else "tier0"

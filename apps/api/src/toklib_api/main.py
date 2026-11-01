@@ -33,6 +33,7 @@ def create_app(settings: Settings | None = None, env: dict | None = None) -> Fas
         import asyncio
 
         ctx.hub.bind_loop(asyncio.get_running_loop())
+        ctx.setup_database()  # alembic upgrade head + FTS5
         if settings.server.run_workers:
             ctx.start_workers()
             logging.getLogger("toklib").info("воркеры запущены (run_workers=true)")

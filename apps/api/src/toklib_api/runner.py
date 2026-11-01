@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import threading
 import traceback
@@ -35,7 +36,14 @@ class WorkerThread(threading.Thread):
         while not self.stop_event.is_set():
             session = self.ctx.session()
             try:
-                claim = job_queue.claim_next(session, self.name, self.types, self.lease_seconds)
+                # lazy_backlog (docs/07 §7.6): backlog-задачи — только в ночном окне
+                budgets = self.ctx.settings.ai.budgets
+                allow_backlog = (not budgets.lazy_backlog) or self.ctx.settings.ai.night_window.in_window(
+                    dt.datetime.now().astimezone()
+                )
+                claim = job_queue.claim_next(
+                    session, self.name, self.types, self.lease_seconds, allow_backlog=allow_backlog
+                )
                 if claim is None:
                     session.close()
                     self.stop_event.wait(self.poll_seconds)

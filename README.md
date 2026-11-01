@@ -13,12 +13,14 @@ Supported Features:
  * Фоновый конвейер на DB-очереди (lease / retry / backoff / dead-letter): метаданные через публичный oEmbed → скачивание yt-dlp (cookies, прокси) → словарные автотеги Tier-0. Карточка живёт даже без файла — embed-режим как fallback.
  * Библиотека: папки (вложенность ≤ 2), теги (AI + пользовательские, слияние), заметки, транскрипты, «просмотрено/избранное», фильтры и сортировки.
  * Плеер: локальный файл с Range-перемоткой; при отсутствии файла — официальный embed TikTok.
- * Полнотекстовый поиск FTS5 с операторами `author:`, `tag:`, `folder:` (семантический поиск — Фаза 2).
+ * Гибридный поиск: FTS5 (BM25) + векторная ветка со слиянием RRF; операторы `author:`, `tag:`, `folder:`; без эмбеддера — честная деградация до полнотекста (`mode` в ответе).
  * Живые статусы обработки в UI через SSE; честные состояния: «частично обработано (Tier-0)», «мёртвая ссылка», ошибки с причиной и кнопкой повтора.
  * Single-token аутентификация, стриминг файлов только по id из БД, allowlist хостов — SSRF исключён.
- * AI по умолчанию локальный (`local_only`): faster-whisper, Ollama/llama.cpp, sentence-transformers подключаются конфигом без изменения кода (Фаза 2).
+ * AI по умолчанию локальный (`local_only`): faster-whisper, Ollama/llama.cpp, sentence-transformers; пресеты железа одним ключом (`ai.preset: S/M/L/XL/cloud` — от старого CPU до GPU-бокса или дешёвого облака). Ollama structured outputs — жёсткий JSON на 3–4B моделях.
  * Каналы приёма: веб-панель, Telegram-бот, REST API.
  * Один контейнер: `docker compose up` поднимает API, воркеры и веб-панель; все данные — в одной папке.
+ * Импорт архива TikTok «Скачать мои данные» (JSON/TXT): сотни ссылок в ленивую очередь — Tier-0 сразу, полный AI ночью.
+ * Jellyfin-совместимый экспорт: hardlink-дерево с `movie.nfo` и постерами — библиотека появляется в Jellyfin без плагина.
 
 ## Установка
 
@@ -91,10 +93,10 @@ curl -X POST http://localhost:8000/api/inbox \
 | Канал | Как | Статус |
 |---|---|---|
 | Веб-панель | поле ввода + Enter | MVP ✅ |
-| Telegram-бот | сообщение со ссылкой, `/status` | MVP ✅ |
+| Telegram-бот | сообщение со ссылкой, `/status`, уведомления о готовности | MVP ✅ |
 | REST API | `POST /api/inbox` (Bearer-токен) | MVP ✅ |
+| Импорт data export | `POST /api/system/import/data-export` (multipart) или `toklib import-data-export` | ✅ |
 | iOS Shortcuts / Android PWA share | POST на `/api/inbox` | V1.1 |
-| Импорт TikTok data export | загрузка JSON-архива | Фаза 3 |
 
 ## Конфигурация
 
@@ -114,9 +116,12 @@ curl -X POST http://localhost:8000/api/inbox \
 ## CLI
 
 ```bash
-uv run --all-packages toklib doctor             # проверка провайдеров, железа, конфига + пресет
-uv run --all-packages toklib reindex-embeddings # пересборка векторов после смены модели
-uv run --all-packages toklib benchmark --videos 10
+uv run --all-packages toklib doctor                  # провайдеры, ключи, железо + пресет
+uv run --all-packages toklib spike --links links.txt --out report.json   # сухой прогон конвейера, go/no-go
+uv run --all-packages toklib benchmark --videos 10   # p50 стадий AI на библиотеке
+uv run --all-packages toklib import-data-export --file archive.json # импорт «Скачать мои данные»
+uv run --all-packages toklib export-jellyfin         # пересобрать Jellyfin-дерево
+uv run --all-packages toklib reindex-embeddings      # пересборка векторов после смены модели
 ```
 
 ## Устранение неполадок
@@ -144,5 +149,6 @@ uv run --all-packages toklib benchmark --videos 10
 
 ## Статус
 
-**Фаза 1 (MVP) — ядро готово:** приём ссылок, конвейер, Tier-0, библиотека, поиск, веб-панель, Docker — покрытие тестами, CI зелёный.
-**Дальше — Фаза 2 «AI-слой»:** транскрипция (faster-whisper), LLM-теги/саммари одним JSON-вызовом, эмбеддинги и гибридный поиск, бюджеты и ночной бэклог (docs/07–08).
+**Фаза 1 (MVP) и каркас Фазы 2 — готово:** приём ссылок, конвейер, Tier-0, библиотека, гибридный поиск (RRF), ночной бэклог, уведомления бота, Alembic, TS-типы из OpenAPI.
+**Фаза 3, часть 1 — готово:** пресеты железа (`ai.preset`), Ollama structured outputs, импорт data export, Jellyfin-экспорт.
+**Дальше:** включение реальных моделей (extras + `ai.preset`) и спайк на своём железе; Home Assistant-интеграция; UI для импорта.
