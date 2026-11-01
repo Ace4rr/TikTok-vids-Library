@@ -1,0 +1,69 @@
+# Полный пример конфигурации TokLib.
+# Положите в <data_dir>/config.yaml (например ./data/config.yaml).
+# Секреты — ТОЛЬКО через env (TOKLIB_LLM_KEY и т.п.), не здесь (docs/05 §5.11).
+# Схема значений: packages/shared/src/toklib_core/config.py; AI-секции соответствуют docs/08 §8.5.
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  # Токен доступа: если не задан здесь, берётся из env TOKLIB_TOKEN.
+  # Пустой = открытый режим (только для локальной разработки).
+  # run_workers: true       # false — вынести воркеры (SaaS/GPU-профиль)
+  # ai_only: false          # true — контейнер только с AI-воркером (профиль XL)
+  # database_url: null      # PostgreSQL для SaaS-профиля; по умолчанию SQLite в data_dir
+
+download:
+  provider: yt_dlp          # yt_dlp | cobalt | none (embed-only, карточки без файлов)
+  # cookies_file: /data/cookies.txt
+  # cookies_from_browser: chrome
+  # proxy: socks5://127.0.0.1:1080
+  # cobalt_base_url: http://cobalt:9000
+
+ingest:
+  allow_extra_hosts: []     # дополнительные хосты в allowlist (SSRF-защита, docs/05 §5.11)
+
+storage:
+  disk_pause_pct: 90        # FR-2.7: порог остановки загрузок
+  disk_warn_pct: 95
+
+ai:
+  mode: local_only          # local_only | local_first | cloud_only (FR-6.5: local_only — default)
+  night_window: { start: "01:00", end: "07:00" }   # окно ночного бэклога (docs/07 §7.6)
+
+  stt:
+    provider: faster_whisper  # faster_whisper | whisper_cpp | openai_api | groq_api
+    model: small              # минимум для русского (docs/07 §7.8)
+    compute: int8             # int8 (CPU) | float16 (GPU)
+    vad: true
+    beam: 1
+    language: auto
+    # base_url / model_name / api_key_env — для API-провайдеров
+
+  llm:
+    provider: ollama          # ollama | llama_cpp | lm_studio | vllm | openai_compat
+    base_url: http://127.0.0.1:11434
+    model: qwen3:4b-instruct-q4_K_M
+    keep_alive: 30m
+    temperature: 0.2
+    max_tokens: 256
+    api_key_env: TOKLIB_LLM_KEY
+
+  # Fallback на облако — активен ТОЛЬКО при mode: local_first (явный opt-in, NFR-9)
+  # llm_fallback:
+  #   provider: openai_compat
+  #   base_url: https://openrouter.ai/api/v1
+  #   model: <дешёвый flash-класс на момент внедрения>
+  #   api_key_env: TOKLIB_LLM_KEY
+  #   on_timeout_s: 120
+  #   circuit_breaker: { failures: 3, pause_min: 15 }
+
+  embeddings:
+    provider: sentence_transformers   # sentence_transformers | ollama | openai_compat
+    model: multilingual-e5-small
+    dim: 384
+
+  budgets:
+    analysis_per_day: 0       # 0 = без лимита (self-hosted)
+    nightly_backlog: 400
+    lazy_backlog: true
+    stt_concurrency: 1

@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# Локальные данные пользователя (БД, media, конфиг) — никогда в git
+data/
+.env
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Web
+node_modules/
+apps/web/.next/
+apps/web/out/
+apps/web/*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db

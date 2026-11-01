@@ -1,0 +1,37 @@
+# TokLib self-hosted: один контейнер (API + воркеры + web-статика) — NFR-5.
+# Запуск: cp .env.example .env → задайте TOKLIB_TOKEN → docker compose up
+services:
+  toklib:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      TOKLIB_TOKEN: ${TOKLIB_TOKEN:?Задайте TOKLIB_TOKEN в .env}
+      TOKLIB_DATA_DIR: /data
+      # секреты AI-провайдеров прокидываются только если заданы (opt-in облако)
+      TOKLIB_LLM_KEY: ${TOKLIB_LLM_KEY:-}
+      TOKLIB_STT_KEY: ${TOKLIB_STT_KEY:-}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ---- Необязательно: локальный LLM рядом (docs/08, путь 2) ----
+  # Раскомментируйте и укажите в config.yaml: ai.llm.base_url: http://ollama:11434
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   volumes:
+  #     - ./data/ollama:/root/.ollama
+  #   restart: unless-stopped
+  #   # GPU: раскомментируйте при наличии (профиль L, docs/08 §8.6)
+  #   # deploy:
+  #   #   resources:
+  #   #     reservations:
+  #   #       devices:
+  #   #         - driver: nvidia
+  #   #           count: all
+  #   #           capabilities: [gpu]

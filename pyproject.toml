@@ -1,0 +1,36 @@
+[project]
+name = "toklib-workspace"
+version = "0.1.0"
+description = "TokLib — личная библиотека сохранённых TikTok-видео (workspace root)"
+requires-python = ">=3.12"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/shared", "services/ingest", "services/ai", "apps/api"]
+
+[tool.uv.sources]
+toklib-core = { workspace = true }
+toklib-ingest = { workspace = true }
+toklib-ai = { workspace = true }
+toklib-api = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = [
+    "packages/shared/tests",
+    "services/ingest/tests",
+    "services/ai/tests",
+    "apps/api/tests",
+]
+addopts = "-q"

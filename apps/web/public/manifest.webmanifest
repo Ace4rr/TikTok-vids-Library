@@ -1,0 +1,10 @@
+{
+  "name": "TokLib",
+  "short_name": "TokLib",
+  "description": "Личная библиотека сохранённых TikTok-видео",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111114",
+  "theme_color": "#fe2c55",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
