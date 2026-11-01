@@ -1,31 +1,47 @@
-from pathlib import Path
-
 from sqlalchemy.orm import sessionmaker
 from toklib_ai import tier0
 from toklib_core.db import Base, Tag, Video, VideoTag, make_engine
 from toklib_core.enums import TagSource
 
 
-def test_load_default_dictionary():
-    dictionary = tier0.load_dictionary(Path(tier0.default_dictionary_path()))
+def test_load_default_dictionary(tmp_path):
+    """ensure_dictionary копирует package data; работает и при установке из wheel."""
+    path = tier0.ensure_dictionary(tmp_path)
+    dictionary = tier0.load_dictionary(path)
     assert "рецепт" in dictionary["categories"]
     assert dictionary["max_tags"] >= 1
 
 
-def test_tier0_tags_by_caption():
-    dictionary = tier0.load_dictionary(Path(tier0.default_dictionary_path()))
+def test_dictionary_fallback_without_package_data(tmp_path):
+    """Если package data потеряна — встроенный запасной словарь, не падение."""
+
+    def no_file():
+        return None
+
+    original = tier0.default_dictionary_text
+    tier0.default_dictionary_text = no_file
+    try:
+        path = tier0.ensure_dictionary(tmp_path)
+        dictionary = tier0.load_dictionary(path)
+    finally:
+        tier0.default_dictionary_text = original
+    assert "рецепт" in dictionary["categories"]
+
+
+def test_tier0_tags_by_caption(tmp_path):
+    dictionary = tier0.load_dictionary(tier0.ensure_dictionary(tmp_path))
     tags = tier0.tier0_tags("Простой рецепт холодного фарша на ужин", [], dictionary)
     assert "рецепт" in tags
 
 
-def test_tier0_tags_by_hashtag_alias():
-    dictionary = tier0.load_dictionary(Path(tier0.default_dictionary_path()))
+def test_tier0_tags_by_hashtag_alias(tmp_path):
+    dictionary = tier0.load_dictionary(tier0.ensure_dictionary(tmp_path))
     tags = tier0.tier0_tags("смотрите что вышло", ["recipes"], dictionary)
     assert "рецепт" in tags
 
 
-def test_tier0_tags_empty():
-    dictionary = tier0.load_dictionary(Path(tier0.default_dictionary_path()))
+def test_tier0_tags_empty(tmp_path):
+    dictionary = tier0.load_dictionary(tier0.ensure_dictionary(tmp_path))
     assert tier0.tier0_tags("ничего особенного", [], dictionary) == []
 
 

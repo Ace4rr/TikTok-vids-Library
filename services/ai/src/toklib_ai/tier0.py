@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-import shutil
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -16,19 +16,62 @@ from sqlalchemy.orm import Session
 from toklib_core.db import Tag, Video, VideoTag, utcnow
 from toklib_core.enums import TagKind, TagSource
 
+log = logging.getLogger(__name__)
 
-def default_dictionary_path() -> Path:
+# Запасной словарь на случай, если package data не дошла до установки
+# (кривой wheel, потерянный файл) — приложение не должно падать на старте.
+FALLBACK_DICTIONARY: dict[str, Any] = {
+    "version": 1,
+    "max_tags": 5,
+    "categories": {
+        "рецепт": ["рецепт", "готов", "блюдо", "кухн", "cooking", "recipe", "food"],
+        "туториал": ["туториал", "урок", "обуч", "настрой", "tutorial", "how to"],
+        "лайфхак": ["лайфхак", "хитрост", "совет", "трюк", "hack", "tips"],
+        "фитнес": ["фитнес", "трениров", "упражнен", "зал", "workout", "gym"],
+        "музыка": ["музык", "песн", "трек", "кавер", "music", "song"],
+        "юмор": ["юмор", "прикол", "смешн", "шутк", "funny", "meme"],
+        "путешествия": ["путешеств", "поездк", "тур", "отдых", "travel"],
+        "новости": ["новост", "событи", "срочн", "news"],
+        "образование": ["наук", "факт", "истори", "объясн", "science", "facts"],
+        "красота": ["красот", "уход", "косметик", "макияж", "beauty"],
+        "техника": ["гаджет", "телефон", "техник", "обзор", "tech", "review"],
+        "животные": ["кот", "собак", "питом", "животн", "cat", "dog"],
+    },
+    "tag_aliases": {
+        "#еда": "рецепт",
+        "#рецепты": "рецепт",
+        "#recipes": "рецепт",
+        "#tutorial": "туториал",
+        "#tips": "лайфхак",
+        "#workout": "фитнес",
+        "#travel": "путешествия",
+        "#funny": "юмор",
+        "#tech": "техника",
+        "#cat": "животные",
+        "#dog": "животные",
+    },
+}
+
+
+def default_dictionary_text() -> str | None:
+    """Содержимое дефолтного словаря из package data; None, если файл недоступен."""
     from importlib.resources import files
 
-    return files("toklib_ai").joinpath("data/tier0-dictionary.yaml")  # type: ignore[return-value]
+    traversable = files("toklib_ai").joinpath("data/tier0-dictionary.yaml")
+    try:
+        return traversable.read_text(encoding="utf-8")
+    except (FileNotFoundError, ModuleNotFoundError):
+        log.warning("tier0-dictionary.yaml не найден в пакете — используется встроенный запасной словарь")
+        return None
 
 
 def ensure_dictionary(data_dir: Path) -> Path:
-    """Скопировать дефолтный словарь в data_dir, если его там ещё нет."""
+    """Положить дефолтный словарь в data_dir, если его там ещё нет."""
     target = data_dir / "tier0-dictionary.yaml"
     if not target.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(str(default_dictionary_path()), target)
+        text = default_dictionary_text()
+        target.write_text(text if text is not None else yaml.safe_dump(FALLBACK_DICTIONARY, allow_unicode=True), encoding="utf-8")
     return target
 
 

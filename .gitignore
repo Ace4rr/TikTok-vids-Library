@@ -8,8 +8,9 @@ build/
 .pytest_cache/
 .ruff_cache/
 
-# Локальные данные пользователя (БД, media, конфиг) — никогда в git
-data/
+# Локальные данные пользователя (БД, media, конфиг) — только корень репозитория!
+# Якорь обязателен: голое `data/` игнорировало и package data (services/ai/.../data/).
+/data/
 .env
 *.sqlite3
 *.sqlite3-wal

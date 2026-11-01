@@ -1,6 +1,6 @@
 .git
 .venv
-data
+/data
 **/__pycache__
 **/*.py[cod]
 node_modules
