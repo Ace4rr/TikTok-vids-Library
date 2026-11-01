@@ -5,9 +5,8 @@ from __future__ import annotations
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
 from toklib_core.config import load_settings
-from toklib_core.db import Base
+from toklib_core.db import Base, make_engine
 
 config = context.config
 
@@ -35,11 +34,10 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    # Через фабруку TokLib: она создаёт родительский каталог файлового SQLite
+    # («unable to open database file» на свежем TOKLIB_DATA_DIR в CI/контейнере)
+    # и ставит прагмы WAL/busy_timeout.
+    connectable = make_engine(config.get_main_option("sqlalchemy.url"))
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
@@ -48,6 +46,7 @@ def run_migrations_online() -> None:
         )
         with context.begin_transaction():
             context.run_migrations()
+    connectable.dispose()
 
 
 if context.is_offline_mode():

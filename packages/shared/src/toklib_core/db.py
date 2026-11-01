@@ -7,6 +7,7 @@ analysis.content_language, inbox_item.video_id.
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
 
 from sqlalchemy import (
     JSON,
@@ -254,8 +255,16 @@ class Job(Base):
 
 
 def make_engine(url: str) -> Engine:
-    """Движок с прагмами SQLite (WAL + busy_timeout — один писатель, docs/06 Р1)."""
+    """Движок с прагмами SQLite (WAL + busy_timeout — один писатель, docs/06 Р1).
+
+    Для файлового SQLite создаёт родительский каталог: sqlite3 без него отдаёт
+    «unable to open database file» (например, свежий TOKLIB_DATA_DIR в CI/контейнере).
+    """
     if url.startswith("sqlite"):
+        if url.startswith("sqlite:///"):
+            db_path = url[len("sqlite:///") :]
+            if db_path and not db_path.startswith(":memory:"):
+                Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         engine = create_engine(
             url,
             connect_args={"check_same_thread": False},
